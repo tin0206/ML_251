@@ -24,7 +24,7 @@ MAX_WORDS = 30000
 NUM_SAMPLES = 50000
 MAX_LEN = 250 # Max sequence length for LSTM
 EMBEDDING_DIM = 100  # GloVe 100d
-GLOVE_PATH = "glove/glove.6B.100d.txt"
+GLOVE_PATH = "glove.6B.100d.txt"
 
 def preprocessing_data(text):
     # Remove HTML tags
