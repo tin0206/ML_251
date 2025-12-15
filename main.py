@@ -23,7 +23,8 @@ LABEL_COLUMN = 'sentiment'
 MAX_WORDS = 30000
 NUM_SAMPLES = 50000
 MAX_LEN = 250 # Max sequence length for LSTM
-EMBEDDING_DIM = 128 # Embedding dimension for LSTM
+EMBEDDING_DIM = 100  # GloVe 100d
+GLOVE_PATH = "glove/glove.6B.100d.txt"
 
 def preprocessing_data(text):
     # Remove HTML tags
@@ -132,10 +133,38 @@ def classic_ml_pipeline(X_train, X_test, y_train, y_test):
 
     return model_svm, vectorizer, accuracy, f1
 
+# ------------------------------------------------------------------------------
+# Deep Learning Pipeline (LSTM with GloVe)
+# ------------------------------------------------------------------------------
+def load_glove_embeddings(glove_path, word_index, max_words, embed_dim):
+    embeddings_index = {}
+
+    with open(glove_path, encoding="utf8") as f:
+        for line in f:
+            values = line.rstrip().split()
+            
+            if len(values) != embed_dim + 1:
+                continue
+            
+            word = values[0]
+            try:
+                coefs = np.asarray(values[1:], dtype='float32')
+                embeddings_index[word] = coefs
+            except ValueError:
+                continue
+
+    embedding_matrix = np.zeros((max_words, embed_dim))
+    for word, i in word_index.items():
+        if i < max_words and word in embeddings_index:
+            embedding_matrix[i] = embeddings_index[word]
+
+    print(f"Loaded {len(embeddings_index)} word vectors.")
+    return embedding_matrix
+
 def deep_learning_pipepline(X_train, X_test, y_train, y_test):
     print("Deep Learning Pipeline")
     print("\n" + "="*50)
-    print("Start: Deep Learning - LSTM")
+    print("Start: Deep Learning - CNN + BiLSTM (GloVe)")
     print("="*50 + "\n")
     start_time = time.time()
     
@@ -153,38 +182,49 @@ def deep_learning_pipepline(X_train, X_test, y_train, y_test):
     # Step 2: Building the Improved LSTM Model
     model_lstm = Sequential()
 
-    # Embedding Layer (bigger, better)
+    # Pretrained GloVe embedding (frozen for stability)
+    embedding_matrix = load_glove_embeddings(
+        GLOVE_PATH,
+        tokenizer.word_index,
+        MAX_WORDS,
+        EMBEDDING_DIM
+    )
+
+    # Freeze embeddings to prevent overfitting on IMDB
     model_lstm.add(Embedding(input_dim=MAX_WORDS, 
-                             output_dim=128, 
-                             input_length=MAX_LEN))
+                             output_dim=EMBEDDING_DIM, 
+                             input_length=MAX_LEN,
+                             weights=[embedding_matrix],
+                             trainable=False))
     model_lstm.add(Dropout(0.2))
 
     # CNN Feature Extractor
-    model_lstm.add(Conv1D(128, kernel_size=5, activation='relu'))
+    model_lstm.add(Conv1D(64, kernel_size=5, activation='relu'))
     model_lstm.add(MaxPooling1D(pool_size=2))
 
     # BiLSTM Layer 1
     model_lstm.add(Bidirectional(
-        LSTM(128, dropout=0.3, recurrent_dropout=0.3, return_sequences=True)
+        LSTM(64, dropout=0.3, return_sequences=True)
     ))
 
     # BiLSTM Layer 2
     model_lstm.add(Bidirectional(
-        LSTM(64, dropout=0.3, recurrent_dropout=0.3)
+        LSTM(32, dropout=0.3)
     ))
 
     # Dense Layers for deeper learning
-    model_lstm.add(Dense(128, activation='relu'))
-    model_lstm.add(Dropout(0.4))
-
     model_lstm.add(Dense(64, activation='relu'))
-    model_lstm.add(Dropout(0.3))
+    model_lstm.add(Dropout(0.4))
 
     # Output layer
     model_lstm.add(Dense(1, activation='sigmoid'))
 
+    # Gradient clipping to stabilize LSTM training
     model_lstm.compile(
-        optimizer=Adam(learning_rate=1e-3),
+        optimizer=Adam(
+            learning_rate=1e-3,
+            clipnorm=1.0
+        ),
         loss='binary_crossentropy',
         metrics=['accuracy']
     )
@@ -194,7 +234,7 @@ def deep_learning_pipepline(X_train, X_test, y_train, y_test):
     # Callbacks
     early_stopping = EarlyStopping(
         monitor='val_loss',
-        patience=3,
+        patience=5,
         restore_best_weights=True
     )
 
@@ -205,12 +245,16 @@ def deep_learning_pipepline(X_train, X_test, y_train, y_test):
         verbose=1
     )
 
-    # Step 3: Model Training
+    # Step 3: Train/Validation split + Model Training
+    X_train_pad, X_val_pad, y_train, y_val = train_test_split(
+        X_train_pad, y_train, test_size=0.1, stratify=y_train, random_state=42
+    )
+    
     history = model_lstm.fit(
         X_train_pad, y_train,
-        epochs=15,
-        batch_size=32,
-        validation_data=(X_test_pad, y_test),
+        epochs=25,
+        batch_size=64,
+        validation_data=(X_val_pad, y_val),
         callbacks=[early_stopping, reduce_lr],
         verbose=1
     )
