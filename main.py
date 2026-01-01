@@ -134,7 +134,7 @@ def classic_ml_pipeline(X_train, X_test, y_train, y_test):
     return model_svm, vectorizer, accuracy, f1
 
 # ------------------------------------------------------------------------------
-# Deep Learning Pipeline (LSTM with GloVe)
+# Deep Learning Pipeline (CNN + BiLSTM with GloVe)
 # ------------------------------------------------------------------------------
 def load_glove_embeddings(glove_path, word_index, max_words, embed_dim):
     embeddings_index = {}
@@ -324,4 +324,5 @@ if __name__ == "__main__":
     if acc_svm > acc_lstm:
         print("\nThe Classic ML model (TF-IDF + SVM) performed better.")
     else:
+
         print("\nThe Deep Learning model (LSTM) performed better.")
